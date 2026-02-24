@@ -150,14 +150,19 @@ export default function Dashboard() {
       newSources[1] = { ...newSources[1], status: "offline", detail: "连接失败", lastCheck: new Date().toISOString() };
     }
 
-    // Check Odds API (just connectivity, no key needed for check)
+    // Check Odds API with real key
     try {
       const start = Date.now();
-      const resp = await fetch("https://api.the-odds-api.com/v4/sports/?apiKey=DEMO");
+      const resp = await fetch("https://api.the-odds-api.com/v4/sports/?apiKey=f2c6d61b551affd9d084035c8acda26c");
       const latency = Date.now() - start;
-      if (resp.ok || resp.status === 401) {
-        // 401 means API is reachable but key invalid — that's fine for connectivity check
-        newSources[2] = { ...newSources[2], status: resp.ok ? "online" : "degraded", latency, detail: resp.ok ? "API可达" : "需要有效Key", lastCheck: new Date().toISOString() };
+      if (resp.ok) {
+        const data = await resp.json();
+        const remaining = resp.headers.get("x-requests-remaining");
+        const used = resp.headers.get("x-requests-used");
+        const quotaInfo = remaining ? `剩余${remaining}次` : `${data.length}项运动`;
+        newSources[2] = { ...newSources[2], status: "online", latency, detail: quotaInfo, lastCheck: new Date().toISOString() };
+      } else if (resp.status === 401) {
+        newSources[2] = { ...newSources[2], status: "degraded", latency, detail: "Key无效或过期", lastCheck: new Date().toISOString() };
       } else {
         newSources[2] = { ...newSources[2], status: "offline", detail: `HTTP ${resp.status}`, lastCheck: new Date().toISOString() };
       }
