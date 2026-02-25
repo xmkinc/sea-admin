@@ -34,19 +34,24 @@ const PERPLEXITY_CONFIG: ConfigItem[] = [
 ];
 
 const ANALYSIS_CONFIG: ConfigItem[] = [
-  { key: "ANALYSIS_MODEL_PRIMARY", value: "anthropic/claude-opus-4.6", desc: "主引擎：Claude Opus 4.6 Thinking", type: "model" },
+  { key: "ANALYSIS_MODEL_PRIMARY", value: "google/gemini-3.1-pro-preview", desc: "主引擎：Gemini 3.1 Pro（推理+分析能力强）", type: "model" },
   { key: "ANALYSIS_MODEL_PRIMARY_BACKEND", value: "openrouter", desc: "主引擎后端" },
-  { key: "ANALYSIS_MODEL_FALLBACK", value: "google/gemini-3.1-pro-preview", desc: "降级引擎：Gemini 3.1 Pro", type: "model" },
-  { key: "ANALYSIS_MODEL_FALLBACK_BACKEND", value: "openrouter", desc: "降级引擎后端" },
+  { key: "ANALYSIS_MODEL_FALLBACK", value: "google/gemini-3-pro-preview", desc: "一级降级：Gemini 3 Pro", type: "model" },
+  { key: "ANALYSIS_MODEL_FALLBACK_BACKEND", value: "openrouter", desc: "一级降级后端" },
+  { key: "ANALYSIS_MODEL_FALLBACK_2", value: "google/gemini-2.5-pro", desc: "二级降级：Gemini 2.5 Pro", type: "model" },
+  { key: "ANALYSIS_MODEL_FALLBACK_2_BACKEND", value: "openrouter", desc: "二级降级后端" },
+  { key: "ANALYSIS_MODEL_FALLBACK_3", value: "google/gemini-2.5-flash", desc: "三级降级：Gemini 2.5 Flash（兜底）", type: "model" },
+  { key: "ANALYSIS_MODEL_FALLBACK_3_BACKEND", value: "openrouter", desc: "三级降级后端" },
+  { key: "max_tokens", value: "1500", desc: "情绪分析最大token数", type: "number" },
 ];
 
 const MULTI_MODEL_POOL: { name: string; model: string; backend: string }[] = [
-  { name: "Claude-Sonnet-4.6", model: "claude-sonnet-4-6", backend: "antigravity" },
-  { name: "Claude-Opus-4.6-Thinking", model: "claude-opus-4-6-thinking", backend: "antigravity" },
-  { name: "Gemini-2.5-Flash", model: "gemini-2.5-flash", backend: "antigravity" },
-  { name: "Gemini-3-Flash", model: "gemini-3-flash", backend: "antigravity" },
-  { name: "GLM-5", model: "z-ai/glm-5", backend: "openrouter" },
-  { name: "GPT-5.2", model: "openai/gpt-5.2-chat", backend: "openrouter" },
+  { name: "Gemini-3.1-Pro", model: "google/gemini-3.1-pro-preview", backend: "openrouter" },
+  { name: "Gemini-3-Pro", model: "google/gemini-3-pro-preview", backend: "openrouter" },
+  { name: "Gemini-2.5-Pro", model: "google/gemini-2.5-pro", backend: "openrouter" },
+  { name: "Gemini-2.5-Flash", model: "google/gemini-2.5-flash", backend: "openrouter" },
+  { name: "Claude-Opus-4.6", model: "anthropic/claude-opus-4.6", backend: "openrouter" },
+  { name: "Claude-Sonnet-4", model: "anthropic/claude-sonnet-4", backend: "openrouter" },
 ];
 
 const THRESHOLD_CONFIG: ConfigItem[] = [
@@ -118,7 +123,7 @@ export default function SystemConfig() {
           系统配置
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          V5.9 配置参数总览 — 模型、阈值、标签、风控
+          V5.9.4 配置参数总览 — 模型、阈值、标签、风控
         </p>
       </div>
 
@@ -189,9 +194,9 @@ export default function SystemConfig() {
                       <Badge
                         variant="outline"
                         className={`text-[10px] font-mono ${
-                          m.backend === "antigravity"
-                            ? "border-emerald-500/30 text-emerald-400"
-                            : "border-primary/30 text-primary"
+                          m.backend === "openrouter"
+                            ? "border-primary/30 text-primary"
+                            : "border-emerald-500/30 text-emerald-400"
                         }`}
                       >
                         {m.backend}

@@ -25,7 +25,7 @@ import { toast } from "sonner";
 // Since GitHub Actions API requires auth token, we show the workflow config
 // and provide quick links to GitHub
 const WORKFLOW_INFO = {
-  name: "V5.9 Emotion Arbitrage Radar",
+  name: "V5.9.4 Emotion Arbitrage Radar",
   repo: "xmkinc/sports-emotion-arbitrage",
   file: ".github/workflows/radar_scan.yml",
   schedules: [
@@ -34,7 +34,6 @@ const WORKFLOW_INFO = {
     { cron: "0 14 * * *", desc: "主力扫描（美东晚场赛前）", bj: "22:00" },
   ],
   envVars: [
-    { name: "ANTIGRAVITY_API_KEY", desc: "Claude/Gemini 后端", masked: true },
     { name: "OPENROUTER_API_KEY", desc: "OpenRouter 主Key", masked: true },
     { name: "OPENROUTER_API_KEY_BACKUP", desc: "OpenRouter 备用Key", masked: true },
     { name: "ODDS_API_KEY", desc: "The Odds API", masked: true },
@@ -47,7 +46,7 @@ const WORKFLOW_INFO = {
     { name: "Install dependencies", desc: "pip install -r requirements.txt" },
     { name: "Initialize data directory", desc: "mkdir -p data" },
     { name: "Download database artifact", desc: "恢复memory.db数据库" },
-    { name: "Run V5.9 Radar", desc: "执行 radar_scan.py 主流程" },
+    { name: "Run V5.9.4 Radar", desc: "执行 radar_scan.py 主流程" },
     { name: "Upload database artifact", desc: "保存memory.db（90天）" },
   ],
 };

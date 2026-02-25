@@ -225,10 +225,10 @@ export default function Dashboard() {
             </p>
             <div className="flex items-center gap-3 mt-3">
               <Badge variant="outline" className="font-mono text-xs border-primary/40 text-primary">
-                V5.9
+                V5.9.4
               </Badge>
               <Badge variant="outline" className="font-mono text-xs border-emerald-500/40 text-emerald-400">
-                ESPN + Perplexity + Claude
+                ESPN + Perplexity + Gemini
               </Badge>
               <Badge variant="outline" className="font-mono text-xs border-amber-500/40 text-amber-400">
                 GitHub Actions 定时任务
@@ -489,7 +489,7 @@ export default function Dashboard() {
                 <span className="font-mono text-primary">舆论</span>
               </div>
               <div className="flex justify-between">
-                <span>Claude Opus 4.6</span>
+                <span>Gemini 3.1 Pro</span>
                 <span className="font-mono text-primary">情绪</span>
               </div>
               <div className="flex justify-between">

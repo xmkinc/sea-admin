@@ -72,7 +72,7 @@ function StatusBar() {
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-primary status-pulse" />
           <span className="font-mono text-xs text-muted-foreground">SEA</span>
-          <span className="font-mono text-xs font-semibold text-primary">V5.9</span>
+          <span className="font-mono text-xs font-semibold text-primary">V5.9.4</span>
         </div>
         <div className="w-px h-5 bg-border" />
         <span className="text-xs text-muted-foreground">Emotion Arbitrage Radar</span>
