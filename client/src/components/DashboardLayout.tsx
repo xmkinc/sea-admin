@@ -17,8 +17,11 @@ import {
   Wifi,
   WifiOff,
   Clock,
+  LogOut,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 interface NavItem {
   icon: typeof LayoutDashboard;
@@ -72,7 +75,7 @@ function StatusBar() {
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-primary status-pulse" />
           <span className="font-mono text-xs text-muted-foreground">SEA</span>
-          <span className="font-mono text-xs font-semibold text-primary">V5.9.4</span>
+          <span className="font-mono text-xs font-semibold text-primary">V5.9.9</span>
         </div>
         <div className="w-px h-5 bg-border" />
         <span className="text-xs text-muted-foreground">Emotion Arbitrage Radar</span>
@@ -106,6 +109,12 @@ function StatusBar() {
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [location] = useLocation();
+  const { logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    toast.success("已退出登录");
+  };
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -172,8 +181,42 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             })}
           </nav>
 
-          {/* Collapse toggle */}
-          <div className="p-2 border-t border-sidebar-border">
+          {/* Bottom: user info + logout */}
+          <div className="px-2 pb-2 space-y-1 border-t border-sidebar-border pt-2">
+            {/* 用户信息 */}
+            {!collapsed && (
+              <div className="px-2.5 py-1.5 rounded-md" style={{ background: "oklch(0.12 0.015 250)" }}>
+                <div className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-wider">已登录</div>
+                <div className="text-xs font-mono text-muted-foreground mt-0.5">zhaozl</div>
+              </div>
+            )}
+
+            {/* 退出登录 */}
+            {collapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center justify-center py-2 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="bg-popover text-popover-foreground">
+                  退出登录
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors"
+              >
+                <LogOut className="w-4 h-4 shrink-0" />
+                <span>退出登录</span>
+              </button>
+            )}
+
+            {/* Collapse toggle */}
             <button
               onClick={() => setCollapsed(!collapsed)}
               className="w-full flex items-center justify-center py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50 transition-colors"

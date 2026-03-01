@@ -1,9 +1,11 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
+import Login from "@/pages/Login";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./components/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 import RadarScan from "./pages/RadarScan";
@@ -11,7 +13,13 @@ import SystemConfig from "./pages/SystemConfig";
 import Architecture from "./pages/Architecture";
 import ActionsLog from "./pages/ActionsLog";
 
-function Router() {
+function ProtectedRouter() {
+  const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
   return (
     <DashboardLayout>
       <Switch>
@@ -31,19 +39,21 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
-        <TooltipProvider>
-          <Toaster
-            theme="dark"
-            toastOptions={{
-              style: {
-                background: "oklch(0.17 0.015 250)",
-                border: "1px solid oklch(0.25 0.015 250)",
-                color: "oklch(0.92 0.005 250)",
-              },
-            }}
-          />
-          <Router />
-        </TooltipProvider>
+        <AuthProvider>
+          <TooltipProvider>
+            <Toaster
+              theme="dark"
+              toastOptions={{
+                style: {
+                  background: "oklch(0.17 0.015 250)",
+                  border: "1px solid oklch(0.25 0.015 250)",
+                  color: "oklch(0.92 0.005 250)",
+                },
+              }}
+            />
+            <ProtectedRouter />
+          </TooltipProvider>
+        </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
