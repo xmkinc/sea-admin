@@ -18,6 +18,7 @@ import {
   WifiOff,
   Clock,
   LogOut,
+  Upload,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/contexts/AuthContext";
@@ -32,6 +33,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Radar, label: "雷达扫描", path: "/radar" },
+  { icon: Upload, label: "盘口上传", path: "/odds" },
   { icon: ScrollText, label: "运行日志", path: "/actions" },
   { icon: Settings, label: "系统配置", path: "/config" },
   { icon: Network, label: "架构文档", path: "/architecture" },
