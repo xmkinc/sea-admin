@@ -31,6 +31,9 @@ import {
   RefreshCw,
   Eye,
   Plus,
+  Brain,
+  Loader2,
+  Target,
 } from "lucide-react";
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
@@ -60,6 +63,19 @@ interface AnalysisSignal {
   color: string;
 }
 
+interface AIDeepAnalysis {
+  verdict: string;           // 最终裁决："强烈推荐" | "推荐" | "观望" | "回避"
+  bet_direction: string;     // 押注方向，如 "押 Wizards +10.5"
+  confidence: number;        // AI 置信度 1-10
+  sharp_read: string;        // 聪明钱解读
+  public_trap: string;       // 公众陷阱分析
+  line_story: string;        // 盘口故事（盘口移动背后的逻辑）
+  key_factors: string[];     // 关键因素列表
+  risk_warning: string;      // 风险提示
+  model: string;             // 使用的模型
+  analyzed_at: string;       // 分析时间
+}
+
 interface UploadedOdds {
   id: string;
   timestamp: string;
@@ -68,6 +84,7 @@ interface UploadedOdds {
   overallScore: number;
   recommendation: string;
   status: "PENDING" | "MERGED" | "EXPIRED";
+  aiAnalysis?: AIDeepAnalysis;
 }
 
 // ─── 规则引擎前置分析 ─────────────────────────────────────────────────────────
@@ -228,6 +245,76 @@ function loadOdds(): UploadedOdds[] {
 }
 function saveOdds(list: UploadedOdds[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+}
+
+// ─── 盘口 AI 深度分析（OpenRouter）──────────────────────────────────────────
+
+async function aiAnalyzeOdds(record: UploadedOdds): Promise<AIDeepAnalysis> {
+  const apiKey = import.meta.env.VITE_FRONTEND_FORGE_API_KEY;
+  const apiUrl = import.meta.env.VITE_FRONTEND_FORGE_API_URL || "https://openrouter.ai/api/v1";
+  const g = record.game;
+
+  const prompt = `你是一位顶级NBA体育博彩分析师，专注于盘口数据解读和情绪套利。
+
+当前比赛盘口数据：
+- 比赛：${g.team1} vs ${g.team2}（${g.gameTime}）
+- 让分：${g.team1} ${g.spread1} / ${g.team2} ${g.spread2}
+- 赔率：${g.team1} ${g.moneyline1} / ${g.team2} ${g.moneyline2}
+- 投注比例：${g.team1} ${g.bets1} / ${g.team2} ${g.bets2}
+- 资金比例：${g.team1} ${g.money1} / ${g.team2} ${g.money2}
+- 盘口偏移：${g.lineMove || "无"}
+- 备注：${g.notes || "无"}
+
+规则引擎前置分析结果：
+${record.signals.length > 0
+  ? record.signals.map(s => `- [${s.rule}] ${s.label}（${s.confidence}/10）：${s.reason}`).join("\n")
+  : "- 未触发规则"}
+综合评分：${record.overallScore}/10
+
+请从以下维度进行深度分析，返回严格JSON格式（不要markdown代码块，直接输出JSON）：
+{
+  "verdict": "强烈推荐|推荐|观望|回避",
+  "bet_direction": "具体押注建议，如：押 Wizards +10.5",
+  "confidence": 1到10的整数,
+  "sharp_read": "聪明钱/庄家动作解读（资金比例与投注比例背离说明了什么）",
+  "public_trap": "公众情绪陷阱分析（大众在押哪边，为什么可能是错的）",
+  "line_story": "盘口故事（让分和盘口偏移背后的逻辑，市场在告诉我们什么）",
+  "key_factors": ["因素1", "因素2", "因素3"],
+  "risk_warning": "主要风险提示"
+}`;
+
+  const response = await fetch(`${apiUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "anthropic/claude-opus-4-5",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 1200,
+      temperature: 0.3,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`AI 分析失败: ${response.status} ${err}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || "";
+
+  // 提取 JSON
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("AI 返回格式异常");
+
+  const result = JSON.parse(jsonMatch[0]);
+  return {
+    ...result,
+    model: "claude-opus-4-5",
+    analyzed_at: new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }),
+  };
 }
 
 // ─── OCR 调用（OpenRouter Vision）────────────────────────────────────────────
@@ -402,6 +489,8 @@ export default function OddsUpload() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [manualNotes, setManualNotes] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number; currentGame: string } | null>(null);
 
   useEffect(() => { setHistory(loadOdds()); }, []);
 
@@ -545,6 +634,34 @@ export default function OddsUpload() {
     saveOdds([]);
     setHistory([]);
     toast.success("已清空");
+  };
+
+  // 盘口分析：批量对所有 PENDING 比赛调用 AI 深度分析
+  const handleBatchAnalyze = async () => {
+    const pendingItems = history.filter(h => h.status === "PENDING");
+    if (pendingItems.length === 0) {
+      toast.error("没有待分析的比赛");
+      return;
+    }
+    setAnalyzing(true);
+    let updated = [...history];
+    for (let i = 0; i < pendingItems.length; i++) {
+      const item = pendingItems[i];
+      setAnalyzeProgress({ current: i + 1, total: pendingItems.length, currentGame: `${item.game.team1} vs ${item.game.team2}` });
+      try {
+        const aiAnalysis = await aiAnalyzeOdds(item);
+        updated = updated.map(h => h.id === item.id ? { ...h, aiAnalysis } : h);
+        setHistory([...updated]);
+        saveOdds(updated);
+        // 自动展开第一个分析完的
+        if (i === 0) setExpandedId(item.id);
+      } catch (err) {
+        toast.error(`${item.game.team1} vs ${item.game.team2} 分析失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    setAnalyzing(false);
+    setAnalyzeProgress(null);
+    toast.success(`盘口分析完成，共分析 ${pendingItems.length} 场比赛`);
   };
 
   const handleClearImage = () => {
@@ -721,10 +838,51 @@ export default function OddsUpload() {
       {/* 待机队列 */}
       {history.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-            <Database className="w-4 h-4" />
-            待机队列（{history.length} 条）
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Database className="w-4 h-4" />
+              待机队列（{history.length} 条）
+            </h2>
+            {pendingCount > 0 && (
+              <Button
+                size="sm"
+                onClick={handleBatchAnalyze}
+                disabled={analyzing}
+                className="text-xs font-mono h-7 gap-1.5"
+                style={{ background: analyzing ? "oklch(0.25 0.05 145 / 0.5)" : "oklch(0.35 0.12 145)", color: "oklch(0.90 0.08 145)", border: "1px solid oklch(0.45 0.15 145 / 0.5)" }}
+              >
+                {analyzing ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {analyzeProgress ? `${analyzeProgress.current}/${analyzeProgress.total} 分析中...` : "分析中..."}
+                  </>
+                ) : (
+                  <>
+                    <Brain className="w-3 h-3" />
+                    盘口分析（{pendingCount} 场）
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+          {/* 分析进度条 */}
+          {analyzeProgress && (
+            <div className="rounded-lg p-3 space-y-2" style={{ background: "oklch(0.14 0.015 145 / 0.5)", border: "1px solid oklch(0.35 0.12 145 / 0.4)" }}>
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-emerald-400 flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  正在分析：{analyzeProgress.currentGame}
+                </span>
+                <span className="text-muted-foreground">{analyzeProgress.current}/{analyzeProgress.total}</span>
+              </div>
+              <div className="w-full rounded-full h-1" style={{ background: "oklch(0.22 0.02 250)" }}>
+                <div
+                  className="h-1 rounded-full transition-all duration-500"
+                  style={{ width: `${(analyzeProgress.current / analyzeProgress.total) * 100}%`, background: "oklch(0.55 0.18 145)" }}
+                />
+              </div>
+            </div>
+          )}
 
           {history.map((record) => {
             const isExpanded = expandedId === record.id;
@@ -807,7 +965,7 @@ export default function OddsUpload() {
                       </div>
                     </div>
 
-                    {/* 推荐 */}
+                    {/* 前置分析推荐 */}
                     <div className="rounded-lg p-3" style={{ background: "oklch(0.14 0.015 250)", border: "1px solid oklch(0.28 0.05 250 / 0.5)" }}>
                       <div className="flex items-start gap-2">
                         <Zap className="w-4 h-4 text-primary mt-0.5 shrink-0" />
@@ -817,6 +975,78 @@ export default function OddsUpload() {
                         </div>
                       </div>
                     </div>
+
+                    {/* AI 深度分析结果 */}
+                    {record.aiAnalysis && (
+                      <div className="rounded-lg p-4 space-y-3" style={{ background: "oklch(0.12 0.02 145 / 0.4)", border: "1px solid oklch(0.40 0.15 145 / 0.4)" }}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Brain className="w-4 h-4 text-emerald-400" />
+                            <span className="text-xs font-mono text-emerald-400 uppercase tracking-wider">AI 盘口深度分析</span>
+                            <span className="text-[10px] font-mono text-muted-foreground/60">{record.aiAnalysis.model}</span>
+                          </div>
+                          <span className="text-[10px] font-mono text-muted-foreground/50">{record.aiAnalysis.analyzed_at}</span>
+                        </div>
+
+                        {/* 裁决 + 押注方向 */}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span
+                            className="px-2 py-0.5 rounded text-xs font-mono font-bold"
+                            style={{
+                              background: record.aiAnalysis.verdict === "强烈推荐" ? "oklch(0.35 0.18 145 / 0.3)" :
+                                          record.aiAnalysis.verdict === "推荐" ? "oklch(0.35 0.12 145 / 0.2)" :
+                                          record.aiAnalysis.verdict === "回避" ? "oklch(0.35 0.18 25 / 0.3)" :
+                                          "oklch(0.30 0.05 250 / 0.3)",
+                              color: record.aiAnalysis.verdict === "强烈推荐" ? "oklch(0.75 0.18 145)" :
+                                     record.aiAnalysis.verdict === "推荐" ? "oklch(0.65 0.15 145)" :
+                                     record.aiAnalysis.verdict === "回避" ? "oklch(0.75 0.18 25)" :
+                                     "oklch(0.65 0.08 250)",
+                              border: `1px solid ${record.aiAnalysis.verdict === "强烈推荐" ? "oklch(0.45 0.18 145 / 0.5)" :
+                                                   record.aiAnalysis.verdict === "推荐" ? "oklch(0.40 0.12 145 / 0.4)" :
+                                                   record.aiAnalysis.verdict === "回避" ? "oklch(0.45 0.18 25 / 0.5)" :
+                                                   "oklch(0.35 0.05 250 / 0.4)"}`,
+                            }}
+                          >{record.aiAnalysis.verdict}</span>
+                          <span className="text-sm font-semibold text-foreground">{record.aiAnalysis.bet_direction}</span>
+                          <span className={`text-xs font-mono ml-auto ${scoreColor(record.aiAnalysis.confidence)}`}>
+                            <Target className="w-3 h-3 inline mr-0.5" />
+                            置信度 {record.aiAnalysis.confidence}/10
+                          </span>
+                        </div>
+
+                        {/* 三维分析 */}
+                        <div className="grid grid-cols-1 gap-2">
+                          {[
+                            { label: "聪明钱解读", value: record.aiAnalysis.sharp_read, color: "text-yellow-400" },
+                            { label: "公众陷阱", value: record.aiAnalysis.public_trap, color: "text-blue-400" },
+                            { label: "盘口故事", value: record.aiAnalysis.line_story, color: "text-purple-400" },
+                          ].map(({ label, value, color }) => (
+                            <div key={label} className="rounded p-2.5" style={{ background: "oklch(0.14 0.015 250)" }}>
+                              <div className={`text-[10px] font-mono uppercase tracking-wider mb-1 ${color}`}>{label}</div>
+                              <p className="text-xs text-muted-foreground leading-relaxed">{value}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* 关键因素 */}
+                        {record.aiAnalysis.key_factors?.length > 0 && (
+                          <div>
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1.5">关键因素</div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {record.aiAnalysis.key_factors.map((f, i) => (
+                                <span key={i} className="px-2 py-0.5 rounded text-[11px] font-mono" style={{ background: "oklch(0.20 0.03 250)", color: "oklch(0.70 0.08 250)", border: "1px solid oklch(0.28 0.03 250)" }}>{f}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 风险提示 */}
+                        <div className="flex items-start gap-1.5 text-xs text-amber-400/80">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>{record.aiAnalysis.risk_warning}</span>
+                        </div>
+                      </div>
+                    )}
 
                     {/* 信号列表 */}
                     {record.signals.length > 0 ? (
