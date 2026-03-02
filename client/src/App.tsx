@@ -12,7 +12,8 @@ import RadarScan from "./pages/RadarScan";
 import SystemConfig from "./pages/SystemConfig";
 import Architecture from "./pages/Architecture";
 import ActionsLog from "./pages/ActionsLog";
-import OddsUpload from "./pages/OddsUpload";
+import OddsUpload from "@/pages/OddsUpload";
+import StrategyControl from "@/pages/StrategyControl";
 
 function ProtectedRouter() {
   const { isAuthenticated } = useAuth();
@@ -29,7 +30,8 @@ function ProtectedRouter() {
         <Route path="/actions" component={ActionsLog} />
         <Route path="/config" component={SystemConfig} />
         <Route path="/architecture" component={Architecture} />
-        <Route path="/odds" component={OddsUpload} />
+        <Route path="/odds-upload" component={OddsUpload} />
+        <Route path="/strategy" component={StrategyControl} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

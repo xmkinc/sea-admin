@@ -19,6 +19,7 @@ import {
   Clock,
   LogOut,
   Upload,
+  ToggleLeft,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,7 +34,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Radar, label: "雷达扫描", path: "/radar" },
-  { icon: Upload, label: "盘口上传", path: "/odds" },
+  { icon: Upload, label: "盘口上传", path: "/odds-upload" },
+  { icon: ToggleLeft, label: "策略控制", path: "/strategy" },
   { icon: ScrollText, label: "运行日志", path: "/actions" },
   { icon: Settings, label: "系统配置", path: "/config" },
   { icon: Network, label: "架构文档", path: "/architecture" },
