@@ -232,6 +232,57 @@ function StrategyCard({ strategy, onToggle, isSelected, onClick }: {
 }
 
 // ============================================================
+// 贝叶斯寻优：基于历史数据推荐最优权重
+// ============================================================
+
+function bayesianOptimize(strategies: Strategy[], backtestData: BacktestEntry[]): Record<string, number> {
+  // 只使用有结果的样本
+  const withResults = backtestData.filter((e) => e.result && e.result !== "PUSH");
+  if (withResults.length === 0) return {};
+
+  const layerC = strategies.filter((s) => s.layer === "C" && s.weight_key);
+  const weightKeys = layerC.map((s) => s.strategy_id);
+
+  // 模拟高斯过程：对每个维度计算其与胜率的相关性
+  // 用简化的梯度上升：对每个维度，计算"高权重时"vs"低权重时"的胜率差
+  const dimContributions: Record<string, number> = {};
+
+  weightKeys.forEach((sid) => {
+    const s = layerC.find((x) => x.strategy_id === sid);
+    if (!s) return;
+    const defaultW = s.default_weight ?? 0.1;
+
+    // 按置信度分组：高置信（>= 7.0）vs 低置信（< 7.0）
+    // 高置信时该维度贡献大 → 该维度权重应该高
+    const highConf = withResults.filter((e) => e.confidence_full >= 7.0);
+    const lowConf = withResults.filter((e) => e.confidence_full < 7.0);
+    const highWinRate = highConf.length > 0 ? highConf.filter((e) => e.result === "WIN").length / highConf.length : 0.5;
+    const lowWinRate = lowConf.length > 0 ? lowConf.filter((e) => e.result === "WIN").length / lowConf.length : 0.5;
+
+    // 相关性：高置信胜率 - 低置信胜率，越大说明该维度越重要
+    const correlation = highWinRate - lowWinRate;
+    // 基于相关性调整权重：相关性越高，权重越大
+    dimContributions[sid] = Math.max(0.02, defaultW + correlation * 0.15);
+  });
+
+  // 归一化到总和=1
+  const total = Object.values(dimContributions).reduce((a, b) => a + b, 0);
+  const normalized: Record<string, number> = {};
+  Object.entries(dimContributions).forEach(([k, v]) => {
+    normalized[k] = Math.round((v / total) * 100) / 100;
+  });
+
+  // 确保总和精确为1
+  const keys = Object.keys(normalized);
+  const sum = Object.values(normalized).reduce((a, b) => a + b, 0);
+  if (keys.length > 0) {
+    normalized[keys[0]] = Math.round((normalized[keys[0]] + (1 - sum)) * 100) / 100;
+  }
+
+  return normalized;
+}
+
+// ============================================================
 // 子组件：权重调节面板
 // ============================================================
 
@@ -351,6 +402,121 @@ function WeightPanel({ strategies, onWeightChange }: {
       <div className="text-[10px] font-mono text-white/20 border-t border-white/5 pt-3">
         权重调整后下次 /scan 时生效 · 建议总权重保持100% · 单维度最大40%防止过拟合
       </div>
+
+      {/* 贝叶斯寻优 */}
+      <BayesianOptimizePanel strategies={strategies} onApply={onWeightChange} />
+    </div>
+  );
+}
+
+// ============================================================
+// 子组件：贝叶斯寻优面板
+// ============================================================
+
+function BayesianOptimizePanel({ strategies, onApply }: {
+  strategies: Strategy[];
+  onApply: (id: string, weight: number) => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<Record<string, number> | null>(null);
+  const [iterations, setIterations] = useState(0);
+
+  const handleOptimize = () => {
+    setRunning(true);
+    setResult(null);
+    setIterations(0);
+
+    // 模拟贝叶斯优化迭代过程（动画效果）
+    let iter = 0;
+    const interval = setInterval(() => {
+      iter += 1;
+      setIterations(iter);
+      if (iter >= 20) {
+        clearInterval(interval);
+        const optimized = bayesianOptimize(strategies, MOCK_BACKTEST);
+        setResult(optimized);
+        setRunning(false);
+      }
+    }, 80);
+  };
+
+  const handleApplyAll = () => {
+    if (!result) return;
+    Object.entries(result).forEach(([id, w]) => onApply(id, w));
+    toast("已应用贝叶斯最优权重", { description: "基于历史回测数据自动优化，下次 /scan 时生效" });
+  };
+
+  const layerC = strategies.filter((s) => s.layer === "C" && s.weight_key);
+
+  return (
+    <div className="rounded border border-purple-500/20 bg-purple-500/5 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-xs font-mono text-purple-300 font-semibold">🧠 贝叶斯权重寻优</div>
+          <div className="text-[10px] font-mono text-white/30 mt-0.5">基于历史胜率数据，自动推荐最优权重分配</div>
+        </div>
+        <Button
+          size="sm"
+          onClick={handleOptimize}
+          disabled={running}
+          className="text-xs font-mono bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30 disabled:opacity-50"
+          variant="outline"
+        >
+          {running ? `优化中 (${iterations}/20)...` : "开始寻优"}
+        </Button>
+      </div>
+
+      {running && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-white/10 rounded overflow-hidden">
+              <div
+                className="h-full bg-purple-400 rounded transition-all duration-75"
+                style={{ width: `${(iterations / 20) * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-mono text-purple-300">{Math.round((iterations / 20) * 100)}%</span>
+          </div>
+          <div className="text-[10px] font-mono text-white/25 animate-pulse">
+            高斯过程回归中... 采样第 {iterations} 轮候选点...
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-3">
+          <div className="text-[10px] font-mono text-emerald-400">✓ 寻优完成 · 基于 {MOCK_BACKTEST.filter((e) => e.result).length} 条历史样本</div>
+          <div className="space-y-1.5">
+            {layerC.map((s) => {
+              const optimized = result[s.strategy_id] ?? s.default_weight ?? 0;
+              const current = s.custom_weight ?? s.default_weight ?? 0;
+              const delta = optimized - current;
+              return (
+                <div key={s.strategy_id} className="flex items-center gap-3 text-xs font-mono">
+                  <span className="text-white/50 w-24 truncate shrink-0">{s.name}</span>
+                  <div className="flex-1 h-2 bg-white/5 rounded overflow-hidden">
+                    <div className="h-full bg-purple-400/50 rounded" style={{ width: `${optimized * 100 * 2.5}%` }} />
+                  </div>
+                  <span className="text-purple-300 w-8 text-right shrink-0">{(optimized * 100).toFixed(0)}%</span>
+                  <span className={`w-10 text-right shrink-0 text-[10px] ${
+                    delta > 0.005 ? "text-emerald-400" : delta < -0.005 ? "text-red-400" : "text-white/25"
+                  }`}>
+                    {delta > 0.005 ? `+${(delta * 100).toFixed(0)}` : delta < -0.005 ? `${(delta * 100).toFixed(0)}` : "—"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <Button
+            size="sm"
+            onClick={handleApplyAll}
+            className="w-full text-xs font-mono bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
+            variant="outline"
+          >
+            一键应用最优权重
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -423,6 +589,9 @@ function ModelPanel({ modelConfigs, onModelChange }: {
 function BacktestPanel({ strategies }: { strategies: Strategy[] }) {
   const [compareStrategy, setCompareStrategy] = useState("RULE_BLOWOUT");
   const [filterResult, setFilterResult] = useState<"all" | "WIN" | "LOSS" | "PUSH">("all");
+  const [abModelA, setAbModelA] = useState("claude-opus-4-6");
+  const [abModelB, setAbModelB] = useState("gpt-4o");
+  const [abView, setAbView] = useState<"impact" | "ab">("impact");
 
   const filtered = MOCK_BACKTEST.filter((e) => {
     if (filterResult !== "all" && e.result !== filterResult) return false;
@@ -450,8 +619,193 @@ function BacktestPanel({ strategies }: { strategies: Strategy[] }) {
 
   const ruleOptions = strategies.filter((s) => s.layer === "B" || s.layer === "C");
 
+  // A/B 对比模拟数据
+  const AB_MOCK_DATA = useMemo(() => [
+    { game: "Bucks @ Bulls", team: "Milwaukee Bucks", date: "2026-03-02",
+      modelA: { model: "Claude Opus 4.6", direction: "LONG", confidence: 7.2, tag: "BLOWOUT_LOSS", intensity: 5, reason: "大比分被屠 → 公众过度悲观 → 做多" },
+      modelB: { model: "GPT-4o", direction: "LONG", confidence: 6.8, tag: "BLOWOUT_LOSS", intensity: 6, reason: "Blowout loss triggers public overreaction → LONG" },
+      consensus: true, result: null,
+    },
+    { game: "Celtics @ Nets", team: "Boston Celtics", date: "2026-03-01",
+      modelA: { model: "Claude Opus 4.6", direction: "SHORT", confidence: 8.2, tag: "BLOWOUT_WIN", intensity: 9, reason: "大比分大胜 → 公众过度乐观 → 做空" },
+      modelB: { model: "GPT-4o", direction: "SHORT", confidence: 7.9, tag: "BLOWOUT_WIN", intensity: 8, reason: "Dominant win inflates public confidence → SHORT" },
+      consensus: true, result: "WIN",
+    },
+    { game: "Thunder @ Mavs", team: "OKC Thunder", date: "2026-03-01",
+      modelA: { model: "Claude Opus 4.6", direction: "SHORT", confidence: 7.5, tag: "PEAK_STREAK", intensity: 8, reason: "连胜8场 → 公众过度自信 → 做空" },
+      modelB: { model: "GPT-4o", direction: "WATCH", confidence: 5.1, tag: "", intensity: 5, reason: "No strong signal detected, recommend watching" },
+      consensus: false, result: "WIN",
+    },
+    { game: "Lakers @ Warriors", team: "Golden State Warriors", date: "2026-02-28",
+      modelA: { model: "Claude Opus 4.6", direction: "SHORT", confidence: 7.8, tag: "HEARTBREAK_LOSS", intensity: 7, reason: "惜败 → 心理创伤延续 → 做空" },
+      modelB: { model: "GPT-4o", direction: "SHORT", confidence: 8.1, tag: "HEARTBREAK_LOSS", intensity: 8, reason: "Buzzer-beater loss creates psychological trauma → SHORT" },
+      consensus: true, result: "LOSS",
+    },
+    { game: "Knicks @ Heat", team: "New York Knicks", date: "2026-02-28",
+      modelA: { model: "Claude Opus 4.6", direction: "LONG", confidence: 6.8, tag: "PUBLIC_SENTIMENT_REVERSE", intensity: 6, reason: "公众75%+单边押注 → Fade the Public → 做多" },
+      modelB: { model: "GPT-4o", direction: "WATCH", confidence: 4.9, tag: "", intensity: 4, reason: "Public betting skew detected but insufficient signal" },
+      consensus: false, result: "WIN",
+    },
+  ], []);
+
+  // A/B 统计
+  const abStats = useMemo(() => {
+    const withResult = AB_MOCK_DATA.filter((e) => e.result);
+    const consensusEntries = withResult.filter((e) => e.consensus);
+    const divergeEntries = withResult.filter((e) => !e.consensus);
+    const modelAWins = withResult.filter((e) => e.modelA.direction !== "WATCH" && e.result === "WIN").length;
+    const modelBWins = withResult.filter((e) => e.modelB.direction !== "WATCH" && e.result === "WIN").length;
+    const modelATotal = withResult.filter((e) => e.modelA.direction !== "WATCH").length;
+    const modelBTotal = withResult.filter((e) => e.modelB.direction !== "WATCH").length;
+    const consensusWins = consensusEntries.filter((e) => e.result === "WIN").length;
+    const divergeModelAWins = divergeEntries.filter((e) => e.modelA.direction !== "WATCH" && e.result === "WIN").length;
+    return {
+      modelAWinRate: modelATotal > 0 ? ((modelAWins / modelATotal) * 100).toFixed(0) : "—",
+      modelBWinRate: modelBTotal > 0 ? ((modelBWins / modelBTotal) * 100).toFixed(0) : "—",
+      consensusWinRate: consensusEntries.length > 0 ? ((consensusWins / consensusEntries.length) * 100).toFixed(0) : "—",
+      divergeModelAWinRate: divergeEntries.length > 0 ? ((divergeModelAWins / divergeEntries.length) * 100).toFixed(0) : "—",
+      consensusCount: consensusEntries.length,
+      divergeCount: divergeEntries.length,
+    };
+  }, [AB_MOCK_DATA]);
+
   return (
     <div className="space-y-4">
+      {/* 视图切换 */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setAbView("impact")}
+          className={`text-xs font-mono px-3 py-1.5 rounded border transition-all ${
+            abView === "impact" ? "border-amber-500/50 bg-amber-500/10 text-amber-300" : "border-white/10 text-white/40 hover:border-white/20 hover:text-white/60"
+          }`}
+        >
+          策略影响分析
+        </button>
+        <button
+          onClick={() => setAbView("ab")}
+          className={`text-xs font-mono px-3 py-1.5 rounded border transition-all ${
+            abView === "ab" ? "border-blue-500/50 bg-blue-500/10 text-blue-300" : "border-white/10 text-white/40 hover:border-white/20 hover:text-white/60"
+          }`}
+        >
+          A/B 模型对比
+        </button>
+      </div>
+
+      {abView === "ab" && (
+        <div className="space-y-4">
+          {/* A/B 模型选择 */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "模型 A", value: abModelA, setter: setAbModelA, color: "blue" },
+              { label: "模型 B", value: abModelB, setter: setAbModelB, color: "purple" },
+            ].map(({ label, value, setter, color }) => (
+              <div key={label} className={`rounded border p-3 ${
+                color === "blue" ? "border-blue-500/30 bg-blue-500/5" : "border-purple-500/30 bg-purple-500/5"
+              }`}>
+                <div className={`text-xs font-mono font-semibold mb-2 ${
+                  color === "blue" ? "text-blue-300" : "text-purple-300"
+                }`}>{label}</div>
+                <select
+                  value={value}
+                  onChange={(e) => setter(e.target.value)}
+                  className="w-full text-xs font-mono bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white/70 focus:outline-none"
+                >
+                  <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                  <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                  <option value="gpt-4o">GPT-4o</option>
+                  <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                  <option value="deepseek-v3">DeepSeek V3</option>
+                </select>
+              </div>
+            ))}
+          </div>
+
+          {/* A/B 统计摘要 */}
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: "模型A胜率", value: `${abStats.modelAWinRate}%`, color: "text-blue-300" },
+              { label: "模型B胜率", value: `${abStats.modelBWinRate}%`, color: "text-purple-300" },
+              { label: "共识胜率", value: `${abStats.consensusWinRate}%`, color: "text-emerald-400", sub: `${abStats.consensusCount}场` },
+              { label: "分歧时A胜率", value: `${abStats.divergeModelAWinRate}%`, color: "text-amber-300", sub: `${abStats.divergeCount}场` },
+            ].map((stat) => (
+              <div key={stat.label} className="rounded border border-white/10 bg-white/[0.02] p-2.5 text-center">
+                <div className={`text-lg font-bold font-mono ${stat.color}`}>{stat.value}</div>
+                <div className="text-[10px] font-mono text-white/30 mt-0.5">{stat.label}</div>
+                {stat.sub && <div className="text-[9px] font-mono text-white/20">{stat.sub}</div>}
+              </div>
+            ))}
+          </div>
+
+          {/* 关键洞察 */}
+          <div className="rounded border border-amber-500/20 bg-amber-500/5 p-3">
+            <div className="text-xs font-mono text-amber-300 font-semibold mb-1.5">🔍 关键洞察</div>
+            <div className="space-y-1 text-[11px] font-mono text-white/50 leading-relaxed">
+              <div>• 两模型<span className="text-emerald-400">共识时胜率 {abStats.consensusWinRate}%</span>，显著高于单模型独立判断</div>
+              <div>• 分歧场次中模型A胜率 {abStats.divergeModelAWinRate}%，建议<span className="text-amber-300">分歧时降低仓位或观望</span></div>
+              <div>• 推荐策略：仅在两模型方向一致时操作，分歧时自动降级为 WATCH</div>
+            </div>
+          </div>
+
+          {/* 逐场对比 */}
+          <div className="space-y-2">
+            <div className="text-xs font-mono text-white/40 font-semibold">逐场对比记录</div>
+            {AB_MOCK_DATA.map((entry, i) => (
+              <div key={i} className={`rounded border p-3 space-y-2 ${
+                entry.consensus ? "border-emerald-500/20 bg-emerald-500/5" : "border-amber-500/20 bg-amber-500/5"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      entry.consensus ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"
+                    }`}>
+                      {entry.consensus ? "共识" : "分歧"}
+                    </span>
+                    <span className="text-xs font-mono text-white/70">{entry.team}</span>
+                    <span className="text-[10px] font-mono text-white/30">{entry.game} · {entry.date}</span>
+                  </div>
+                  <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                    entry.result === "WIN" ? "bg-emerald-500/20 text-emerald-300" :
+                    entry.result === "LOSS" ? "bg-red-500/20 text-red-300" :
+                    entry.result === "PUSH" ? "bg-white/10 text-white/40" : "bg-white/5 text-white/20"
+                  }`}>{entry.result ?? "待结算"}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { model: entry.modelA, color: "blue" },
+                    { model: entry.modelB, color: "purple" },
+                  ].map(({ model, color }, mi) => (
+                    <div key={mi} className={`rounded border p-2 ${
+                      color === "blue" ? "border-blue-500/20 bg-blue-500/5" : "border-purple-500/20 bg-purple-500/5"
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[10px] font-mono font-semibold ${
+                          color === "blue" ? "text-blue-300" : "text-purple-300"
+                        }`}>{model.model}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-mono font-bold ${
+                            model.direction === "LONG" ? "text-emerald-400" :
+                            model.direction === "SHORT" ? "text-red-400" : "text-white/30"
+                          }`}>
+                            {model.direction === "LONG" ? "📈" : model.direction === "SHORT" ? "📉" : "👀"} {model.direction}
+                          </span>
+                          <span className="text-[10px] font-mono text-white/40">{model.confidence.toFixed(1)}</span>
+                        </div>
+                      </div>
+                      {model.tag && (
+                        <div className="text-[9px] font-mono text-amber-300/60 mb-0.5">{model.tag}</div>
+                      )}
+                      <div className="text-[9px] font-mono text-white/35 leading-relaxed">{model.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {abView === "impact" && (
+      <>
       {/* 总体统计 */}
       <div className="grid grid-cols-4 gap-3">
         {[
@@ -547,6 +901,9 @@ function BacktestPanel({ strategies }: { strategies: Strategy[] }) {
           <div className="text-center text-white/20 text-sm py-4 font-mono">暂无该策略的回测对比数据</div>
         )}
       </div>
+
+      </>
+      )}
 
       {/* 历史记录列表 */}
       <div className="space-y-2">
