@@ -961,6 +961,232 @@ function BacktestPanel({ strategies }: { strategies: Strategy[] }) {
 }
 
 // ============================================================
+// 子组件：A/B 结果面板
+// ============================================================
+
+const AB_RESULT_KEY = "sea_ab_results";
+
+interface ABRecord {
+  id: string;
+  date: string;
+  game: string;
+  team: string;
+  model_a: string;
+  model_b: string;
+  signal_a: string;
+  signal_b: string;
+  intensity_a: number;
+  intensity_b: number;
+  consensus: boolean;
+  result: "WIN" | "LOSS" | "PUSH" | null;
+  primary_model: "A" | "B";
+}
+
+function loadABResults(): ABRecord[] {
+  try { return JSON.parse(localStorage.getItem(AB_RESULT_KEY) || "[]"); } catch { return []; }
+}
+function saveABResults(r: ABRecord[]) { localStorage.setItem(AB_RESULT_KEY, JSON.stringify(r)); }
+
+const MOCK_AB_RESULTS: ABRecord[] = [
+  { id: "ab-001", date: "2026-03-02", game: "Bucks @ Bulls", team: "Milwaukee Bucks", model_a: "Claude Opus 4.6", model_b: "GPT-4o", signal_a: "LONG", signal_b: "LONG", intensity_a: 7.2, intensity_b: 6.8, consensus: true, result: null, primary_model: "A" },
+  { id: "ab-002", date: "2026-03-01", game: "Celtics @ Nets", team: "Boston Celtics", model_a: "Claude Opus 4.6", model_b: "GPT-4o", signal_a: "SHORT", signal_b: "SHORT", intensity_a: 8.2, intensity_b: 7.9, consensus: true, result: "WIN", primary_model: "A" },
+  { id: "ab-003", date: "2026-03-01", game: "Thunder @ Mavs", team: "OKC Thunder", model_a: "Claude Opus 4.6", model_b: "GPT-4o", signal_a: "SHORT", signal_b: "WATCH", intensity_a: 7.5, intensity_b: 5.1, consensus: false, result: "WIN", primary_model: "A" },
+  { id: "ab-004", date: "2026-02-28", game: "Lakers @ Warriors", team: "Golden State Warriors", model_a: "Claude Opus 4.6", model_b: "GPT-4o", signal_a: "SHORT", signal_b: "SHORT", intensity_a: 7.8, intensity_b: 8.1, consensus: true, result: "LOSS", primary_model: "B" },
+  { id: "ab-005", date: "2026-02-28", game: "Knicks @ Heat", team: "New York Knicks", model_a: "Claude Opus 4.6", model_b: "GPT-4o", signal_a: "LONG", signal_b: "WATCH", intensity_a: 6.8, intensity_b: 4.9, consensus: false, result: "WIN", primary_model: "A" },
+  { id: "ab-006", date: "2026-02-27", game: "Suns @ Clippers", team: "LA Clippers", model_a: "Claude Opus 4.6", model_b: "GPT-4o", signal_a: "LONG", signal_b: "LONG", intensity_a: 5.9, intensity_b: 6.2, consensus: true, result: "PUSH", primary_model: "B" },
+  { id: "ab-007", date: "2026-02-27", game: "Nuggets @ Jazz", team: "Denver Nuggets", model_a: "Claude Opus 4.6", model_b: "GPT-4o", signal_a: "SHORT", signal_b: "LONG", intensity_a: 6.1, intensity_b: 5.8, consensus: false, result: "LOSS", primary_model: "A" },
+];
+
+function ABResultPanel() {
+  const [records, setRecords] = useState<ABRecord[]>(() => {
+    const saved = loadABResults();
+    return saved.length > 0 ? saved : MOCK_AB_RESULTS;
+  });
+  const [filterConsensus, setFilterConsensus] = useState<"all" | "yes" | "no">("all");
+  const [filterResult, setFilterResult] = useState<"all" | "WIN" | "LOSS" | "PUSH" | "pending">("all");
+
+  const settled = records.filter((r) => r.result !== null);
+  const aRecords = settled.filter((r) => r.primary_model === "A");
+  const aWins = aRecords.filter((r) => r.result === "WIN").length;
+  const aWinRate = aRecords.length > 0 ? ((aWins / aRecords.length) * 100).toFixed(1) : "—";
+  const bRecords = settled.filter((r) => r.primary_model === "B");
+  const bWins = bRecords.filter((r) => r.result === "WIN").length;
+  const bWinRate = bRecords.length > 0 ? ((bWins / bRecords.length) * 100).toFixed(1) : "—";
+  const consensusSettled = settled.filter((r) => r.consensus);
+  const consensusWins = consensusSettled.filter((r) => r.result === "WIN").length;
+  const consensusWinRate = consensusSettled.length > 0 ? ((consensusWins / consensusSettled.length) * 100).toFixed(1) : "—";
+  const divergeSettled = settled.filter((r) => !r.consensus);
+  const divergeWins = divergeSettled.filter((r) => r.result === "WIN").length;
+  const divergeWinRate = divergeSettled.length > 0 ? ((divergeWins / divergeSettled.length) * 100).toFixed(1) : "—";
+  const totalWins = settled.filter((r) => r.result === "WIN").length;
+  const totalWinRate = settled.length > 0 ? ((totalWins / settled.length) * 100).toFixed(1) : "—";
+
+  const modelAName = records[0]?.model_a || "Model A";
+  const modelBName = records[0]?.model_b || "Model B";
+
+  const handleSetResult = (id: string, result: "WIN" | "LOSS" | "PUSH" | null) => {
+    setRecords((prev) => {
+      const next = prev.map((r) => r.id === id ? { ...r, result } : r);
+      saveABResults(next);
+      return next;
+    });
+    toast(result ? `结果已录入: ${result}` : "结果已清除", { description: "A/B 胜率统计已更新" });
+  };
+
+  const filtered = records.filter((r) => {
+    if (filterConsensus === "yes" && !r.consensus) return false;
+    if (filterConsensus === "no" && r.consensus) return false;
+    if (filterResult === "pending" && r.result !== null) return false;
+    if (filterResult !== "all" && filterResult !== "pending" && r.result !== filterResult) return false;
+    return true;
+  });
+
+  return (
+    <div className="space-y-5">
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: `${modelAName} 主推胜率`, value: aWinRate, sub: `${aRecords.length} 场`, color: "text-blue-300", bg: "bg-blue-500/10 border-blue-500/20" },
+          { label: `${modelBName} 主推胜率`, value: bWinRate, sub: `${bRecords.length} 场`, color: "text-purple-300", bg: "bg-purple-500/10 border-purple-500/20" },
+          { label: "共识场次胜率", value: consensusWinRate, sub: `${consensusSettled.length} 场`, color: "text-emerald-300", bg: "bg-emerald-500/10 border-emerald-500/20" },
+          { label: "分歧场次胜率", value: divergeWinRate, sub: `${divergeSettled.length} 场`, color: "text-amber-300", bg: "bg-amber-500/10 border-amber-500/20" },
+        ].map((stat) => (
+          <div key={stat.label} className={`rounded border p-3 ${stat.bg}`}>
+            <div className="text-[10px] font-mono text-white/40 mb-1 truncate">{stat.label}</div>
+            <div className={`text-2xl font-mono font-bold ${stat.color}`}>{stat.value}%</div>
+            <div className="text-[10px] font-mono text-white/30 mt-0.5">{stat.sub} · 已结算</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 胜率对比条形图 */}
+      <div className="rounded border border-white/10 bg-white/[0.02] p-4 space-y-3">
+        <h4 className="text-xs font-mono text-white/60 font-semibold">胜率对比</h4>
+        {[
+          { label: modelAName, rate: parseFloat(aWinRate) || 0, color: "bg-blue-500", count: aRecords.length },
+          { label: modelBName, rate: parseFloat(bWinRate) || 0, color: "bg-purple-500", count: bRecords.length },
+          { label: "共识场次", rate: parseFloat(consensusWinRate) || 0, color: "bg-emerald-500", count: consensusSettled.length },
+          { label: "分歧场次", rate: parseFloat(divergeWinRate) || 0, color: "bg-amber-500", count: divergeSettled.length },
+          { label: "总体", rate: parseFloat(totalWinRate) || 0, color: "bg-white/40", count: settled.length },
+        ].map((bar) => (
+          <div key={bar.label} className="flex items-center gap-3">
+            <div className="w-24 text-[10px] font-mono text-white/50 text-right shrink-0 truncate">{bar.label}</div>
+            <div className="flex-1 h-4 bg-white/5 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-700 ${bar.color}`} style={{ width: `${Math.min(bar.rate, 100)}%` }} />
+            </div>
+            <div className="w-16 text-[10px] font-mono text-white/60 shrink-0">
+              {bar.count > 0 ? `${bar.rate.toFixed(1)}%` : "—"}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 洞察提示 */}
+      {settled.length >= 3 && (
+        <div className="rounded border border-white/10 bg-white/[0.02] p-3 space-y-1.5">
+          <h4 className="text-xs font-mono text-white/60 font-semibold">📊 洞察</h4>
+          {parseFloat(consensusWinRate) > parseFloat(divergeWinRate) ? (
+            <div className="text-[11px] font-mono text-emerald-300/80">✅ 共识场次胜率（{consensusWinRate}%）高于分歧场次（{divergeWinRate}%），建议优先操作双模型共识信号</div>
+          ) : (
+            <div className="text-[11px] font-mono text-amber-300/80">⚠️ 分歧场次胜率（{divergeWinRate}%）≥ 共识场次（{consensusWinRate}%），当前样本量不足以判断，继续积累</div>
+          )}
+          {parseFloat(aWinRate) > parseFloat(bWinRate) + 5 && (
+            <div className="text-[11px] font-mono text-blue-300/80">🅐 {modelAName} 主推胜率领先 {modelBName} {(parseFloat(aWinRate) - parseFloat(bWinRate)).toFixed(1)}pp，建议以 A 为主推荐</div>
+          )}
+          {parseFloat(bWinRate) > parseFloat(aWinRate) + 5 && (
+            <div className="text-[11px] font-mono text-purple-300/80">🅑 {modelBName} 主推胜率领先 {modelAName} {(parseFloat(bWinRate) - parseFloat(aWinRate)).toFixed(1)}pp，建议切换 B 为主推荐</div>
+          )}
+          <div className="text-[10px] font-mono text-white/25 mt-1">基于 {settled.length} 场已结算数据 · 样本量 &lt; 30 时结论仅供参考</div>
+        </div>
+      )}
+
+      {/* 筛选栏 */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <h4 className="text-xs font-mono text-white/60 font-semibold mr-2">历史记录</h4>
+        <select value={filterConsensus} onChange={(e) => setFilterConsensus(e.target.value as "all" | "yes" | "no")} className="text-xs font-mono bg-white/5 border border-white/10 rounded px-2 py-1 text-white/70 focus:outline-none">
+          <option value="all">全部</option>
+          <option value="yes">共识</option>
+          <option value="no">分歧</option>
+        </select>
+        <select value={filterResult} onChange={(e) => setFilterResult(e.target.value as "all" | "WIN" | "LOSS" | "PUSH" | "pending")} className="text-xs font-mono bg-white/5 border border-white/10 rounded px-2 py-1 text-white/70 focus:outline-none">
+          <option value="all">全部结果</option>
+          <option value="pending">待结算</option>
+          <option value="WIN">胜</option>
+          <option value="LOSS">负</option>
+          <option value="PUSH">推</option>
+        </select>
+        <span className="text-[10px] font-mono text-white/25 ml-auto">{filtered.length} 条记录</span>
+      </div>
+
+      {/* 记录列表 */}
+      <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+        {filtered.map((rec) => (
+          <div key={rec.id} className={`rounded border p-3 text-xs font-mono transition-colors ${
+            rec.result === "WIN" ? "border-emerald-500/25 bg-emerald-500/5" :
+            rec.result === "LOSS" ? "border-red-500/25 bg-red-500/5" :
+            rec.result === "PUSH" ? "border-white/10 bg-white/[0.02]" :
+            "border-white/5 bg-white/[0.01]"
+          }`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className={`font-bold text-[10px] px-1.5 py-0.5 rounded ${
+                    rec.consensus ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"
+                  }`}>{rec.consensus ? "✅ 共识" : "⚠️ 分歧"}</span>
+                  <span className="text-white/70 font-semibold truncate">{rec.game}</span>
+                  <span className="text-white/30 shrink-0">{rec.date}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={`rounded p-2 ${
+                    rec.primary_model === "A" ? "border border-blue-500/30 bg-blue-500/5" : "border border-white/5 bg-white/[0.01]"
+                  }`}>
+                    <div className="text-[9px] text-white/30 mb-0.5">🅐 {rec.model_a}{rec.primary_model === "A" ? " · 主" : ""}</div>
+                    <div className={`font-bold ${
+                      rec.signal_a === "LONG" ? "text-emerald-400" : rec.signal_a === "SHORT" ? "text-red-400" : "text-white/40"
+                    }`}>{rec.signal_a === "LONG" ? "📈 LONG" : rec.signal_a === "SHORT" ? "📉 SHORT" : "👀 WATCH"}</div>
+                    <div className="text-[9px] text-white/30 mt-0.5">强度 {rec.intensity_a}/10</div>
+                  </div>
+                  <div className={`rounded p-2 ${
+                    rec.primary_model === "B" ? "border border-purple-500/30 bg-purple-500/5" : "border border-white/5 bg-white/[0.01]"
+                  }`}>
+                    <div className="text-[9px] text-white/30 mb-0.5">🅑 {rec.model_b}{rec.primary_model === "B" ? " · 主" : ""}</div>
+                    <div className={`font-bold ${
+                      rec.signal_b === "LONG" ? "text-emerald-400" : rec.signal_b === "SHORT" ? "text-red-400" : "text-white/40"
+                    }`}>{rec.signal_b === "LONG" ? "📈 LONG" : rec.signal_b === "SHORT" ? "📉 SHORT" : "👀 WATCH"}</div>
+                    <div className="text-[9px] text-white/30 mt-0.5">强度 {rec.intensity_b}/10</div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1 shrink-0">
+                {(["WIN", "LOSS", "PUSH"] as const).map((r) => (
+                  <button key={r} onClick={() => handleSetResult(rec.id, rec.result === r ? null : r)}
+                    className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                      rec.result === r
+                        ? r === "WIN" ? "bg-emerald-500/30 border-emerald-500/50 text-emerald-300"
+                          : r === "LOSS" ? "bg-red-500/30 border-red-500/50 text-red-300"
+                          : "bg-white/20 border-white/30 text-white/60"
+                        : "bg-white/5 border-white/10 text-white/30 hover:border-white/25 hover:text-white/50"
+                    }`}>
+                    {r === "WIN" ? "胜" : r === "LOSS" ? "负" : "推"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="text-center text-white/20 text-sm py-6 font-mono">暂无 A/B 对比记录</div>
+        )}
+      </div>
+
+      <div className="text-[10px] font-mono text-white/20 border-t border-white/5 pt-3">
+        A/B 记录由 sea-bot 在 A/B 测试模式开启时自动写入 · 手动录入结果后实时更新胜率统计 · 数据存储在浏览器 localStorage
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // 子组件：执行日志面板
 // ============================================================
 
@@ -1183,6 +1409,7 @@ export default function StrategyControl() {
               { value: "weights", label: "权重调节" },
               { value: "models", label: "模型配置" },
               { value: "backtest", label: "回测对比" },
+              { value: "abresult", label: "A/B 结果" },
               { value: "logs", label: "执行日志" },
             ].map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value} className="text-xs font-mono data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-300">
@@ -1293,6 +1520,17 @@ export default function StrategyControl() {
                 <span className="text-[10px] text-white/30 font-mono">量化每条规则对置信度的实际贡献</span>
               </div>
               <BacktestPanel strategies={strategies} />
+            </div>
+          </TabsContent>
+
+          {/* A/B 结果 */}
+          <TabsContent value="abresult" className="mt-3">
+            <div className="rounded border border-white/10 bg-white/[0.02] p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-mono text-white/70">A/B 模型历史胜率统计</h3>
+                <span className="text-[10px] text-white/30 font-mono">量化两个内核的实际预测准确率 · 手动录入结果后实时更新</span>
+              </div>
+              <ABResultPanel />
             </div>
           </TabsContent>
 
