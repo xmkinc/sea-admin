@@ -250,8 +250,8 @@ function saveOdds(list: UploadedOdds[]) {
 // ─── 盘口 AI 深度分析（OpenRouter）──────────────────────────────────────────
 
 async function aiAnalyzeOdds(record: UploadedOdds): Promise<AIDeepAnalysis> {
-  const apiKey = import.meta.env.VITE_FRONTEND_FORGE_API_KEY;
-  const apiUrl = import.meta.env.VITE_FRONTEND_FORGE_API_URL || "https://openrouter.ai/api/v1";
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  const apiUrl = "https://openrouter.ai/api/v1";
   const g = record.game;
 
   const prompt = `你是一位顶级NBA体育博彩分析师，专注于盘口数据解读和情绪套利。
@@ -320,8 +320,8 @@ ${record.signals.length > 0
 // ─── OCR 调用（OpenRouter Vision）────────────────────────────────────────────
 
 async function ocrParseImage(base64: string, mimeType: string): Promise<ParsedGame[]> {
-  const apiKey = import.meta.env.VITE_FRONTEND_FORGE_API_KEY;
-  const apiUrl = import.meta.env.VITE_FRONTEND_FORGE_API_URL || "https://openrouter.ai/api/v1";
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  const apiUrl = "https://openrouter.ai/api/v1";
 
   const prompt = `You are an NBA sports betting data extractor. 
 Analyze this Action Network style odds screenshot and extract ALL games shown.
