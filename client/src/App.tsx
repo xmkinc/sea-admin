@@ -14,6 +14,8 @@ import Architecture from "./pages/Architecture";
 import ActionsLog from "./pages/ActionsLog";
 import OddsUpload from "@/pages/OddsUpload";
 import StrategyControl from "@/pages/StrategyControl";
+import Signals from "@/pages/Signals";
+import Reviews from "@/pages/Reviews";
 
 function ProtectedRouter() {
   const { isAuthenticated } = useAuth();
@@ -32,6 +34,8 @@ function ProtectedRouter() {
         <Route path="/architecture" component={Architecture} />
         <Route path="/odds-upload" component={OddsUpload} />
         <Route path="/strategy" component={StrategyControl} />
+        <Route path="/signals" component={Signals} />
+        <Route path="/reviews" component={Reviews} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

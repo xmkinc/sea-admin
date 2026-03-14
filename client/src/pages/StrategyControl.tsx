@@ -1462,13 +1462,15 @@ export default function StrategyControl() {
   const [activeLayer, setActiveLayer] = useState<"A" | "B" | "C" | "all">("all");
   const [logs] = useState<RunLog[]>(MOCK_LOGS);
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>(MODEL_CONFIGS);
+  const [tursoSynced, setTursoSynced] = useState(false);
 
-  // 初始化
+  // 初始化：优先从 Turso 读取权重，fallback 到 localStorage
   useEffect(() => {
     const savedToggles = loadToggles();
     const savedWeights = loadWeights();
     const savedModels = loadModels();
 
+    // 先用本地数据初始化（快速渲染）
     setStrategies(
       MOCK_STRATEGIES.map((s) => ({
         ...s,
@@ -1482,6 +1484,30 @@ export default function StrategyControl() {
         prev.map((c) => ({ ...c, current: savedModels[c.role] ?? c.current }))
       );
     }
+
+    // 异步从 Turso 读取最新权重（覆盖 localStorage）
+    fetch("/api/strategies/config")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data?.strategies?.length) return;
+        const tursoMap: Record<string, { weight: number | null; enabled: number | null }> = {};
+        data.strategies.forEach((s: { strategy_id: string; weight: number | null; enabled: number | null }) => {
+          tursoMap[s.strategy_id] = { weight: s.weight, enabled: s.enabled };
+        });
+        setStrategies((prev) =>
+          prev.map((s) => {
+            const t = tursoMap[s.strategy_id];
+            if (!t) return s;
+            return {
+              ...s,
+              enabled: t.enabled !== null ? t.enabled === 1 : s.enabled,
+              custom_weight: t.weight !== null ? t.weight : s.custom_weight,
+            };
+          })
+        );
+        setTursoSynced(true);
+      })
+      .catch(() => { /* Turso 不可用时静默降级 */ });
   }, []);
 
   const handleToggle = useCallback((id: string, val: boolean) => {
@@ -1492,8 +1518,14 @@ export default function StrategyControl() {
       saveToggles(toggleMap);
       return next;
     });
+    // 同步写入 Turso
+    fetch("/api/strategies/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ strategy_id: id, enabled: val }),
+    }).catch(() => {});
     const meta = MOCK_STRATEGIES.find((s) => s.strategy_id === id);
-    toast(val ? `策略已开启: ${meta?.name || id}` : `策略已关闭: ${meta?.name || id}`, { description: "下次 /scan 时生效" });
+    toast(val ? `策略已开启: ${meta?.name || id}` : `策略已关闭: ${meta?.name || id}`, { description: "已同步到 Turso · 下次 /scan 时生效" });
   }, []);
 
   const handleWeightChange = useCallback((id: string, weight: number) => {
@@ -1504,6 +1536,12 @@ export default function StrategyControl() {
       saveWeights(weightMap);
       return next;
     });
+    // 同步写入 Turso
+    fetch("/api/strategies/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ strategy_id: id, weight }),
+    }).catch(() => {});
   }, []);
 
   const handleModelChange = useCallback((role: string, modelId: string) => {

@@ -25,6 +25,19 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 
+interface DashboardSummary {
+  total_decisions: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  pending: number;
+  win_rate: number | null;
+  total_signals: number;
+  today_decisions: number;
+  settled_signals: number;
+  correct_signals: number;
+}
+
 interface DataSourceStatus {
   name: string;
   status: "online" | "offline" | "checking" | "degraded";
@@ -95,6 +108,23 @@ export default function Dashboard() {
   const [games, setGames] = useState<ESPNGame[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+
+  const fetchSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    try {
+      const resp = await fetch("/api/dashboard/summary");
+      if (resp.ok) {
+        const data = await resp.json();
+        setSummary(data);
+      }
+    } catch {
+      // API not available (dev mode without server)
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, []);
 
   const checkDataSources = useCallback(async () => {
     setRefreshing(true);
@@ -197,6 +227,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     checkDataSources();
+    fetchSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -236,6 +267,70 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Turso System Stats Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
+        <Card className="data-card">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">历史信号总数</p>
+                <p className="text-2xl font-bold font-mono mt-1">
+                  {summaryLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : <span className="text-primary">{summary?.total_signals ?? "—"}</span>}
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Zap className="w-5 h-5 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="data-card data-card-success">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">信号胜率</p>
+                <p className="text-2xl font-bold font-mono mt-1">
+                  {summaryLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : summary?.win_rate != null ? <><span className="text-emerald-400">{summary.win_rate}%</span></> : <span className="text-muted-foreground">—</span>}
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-emerald-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="data-card">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">决策总数</p>
+                <p className="text-2xl font-bold font-mono mt-1">
+                  {summaryLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : <><span className="text-foreground">{summary?.total_decisions ?? "—"}</span><span className="text-muted-foreground text-sm ml-1">({summary?.wins ?? 0}胜/{summary?.losses ?? 0}负)</span></>}
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                <BarChart3 className="w-5 h-5 text-muted-foreground" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="data-card data-card-warning">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">今日决策</p>
+                <p className="text-2xl font-bold font-mono mt-1">
+                  {summaryLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : <><span className={summary?.today_decisions ? "text-amber-400" : "text-muted-foreground"}>{summary?.today_decisions ?? "—"}</span><span className="text-muted-foreground text-lg"> 条</span></>}
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <ArrowUpRight className="w-5 h-5 text-amber-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Quick Stats Row */}
